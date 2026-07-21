@@ -345,14 +345,16 @@ export default function Chat() {
                 <button
                   className="bt-btn"
                   onClick={() => confirmStep(i, 'give')}
-                  disabled={i !== activeHopIndex || giveDone}
+                  disabled={i !== activeHopIndex || giveDone || hop.from.id !== String(user.id)}
+                  title={hop.from.id !== String(user.id) ? `${hop.from.nickname}님만 누를 수 있어요.` : undefined}
                 >
                   {giveDone ? `${giveLabel(hop.from)} 완료` : giveLabel(hop.from)}
                 </button>
                 <button
                   className="bt-btn"
                   onClick={() => confirmStep(i, 'receive')}
-                  disabled={i !== activeHopIndex || receiveDone}
+                  disabled={i !== activeHopIndex || receiveDone || hop.to.id !== String(user.id)}
+                  title={hop.to.id !== String(user.id) ? `${hop.to.nickname}님만 누를 수 있어요.` : undefined}
                 >
                   {receiveDone ? `${receiveLabel(hop.to)} 완료` : receiveLabel(hop.to)}
                 </button>

@@ -1,5 +1,3 @@
-import { products as mockProducts } from './mock/data'
-
 const TRADE_TYPE_LABELS = {
   direct: '직거래',
   delivery: '택배',
@@ -78,10 +76,13 @@ const request = async (url) => {
 
 const TOKEN_KEY = 'securecondhand_token'
 
-export const getToken = () => localStorage.getItem(TOKEN_KEY)
+// localStorage는 같은 브라우저의 모든 탭이 공유해서, 탭마다 다른 계정으로 로그인해
+// 테스트하면 나중에 로그인한 탭이 다른 탭의 토큰까지 덮어써버린다. sessionStorage는
+// 탭/창마다 독립적이라 새로고침 유지는 그대로 되면서 계정이 서로 섞이지 않는다.
+export const getToken = () => sessionStorage.getItem(TOKEN_KEY)
 export const setToken = (token) => {
-  if (token) localStorage.setItem(TOKEN_KEY, token)
-  else localStorage.removeItem(TOKEN_KEY)
+  if (token) sessionStorage.setItem(TOKEN_KEY, token)
+  else sessionStorage.removeItem(TOKEN_KEY)
 }
 
 const authHeaders = () => {
@@ -150,14 +151,11 @@ export const fetchProducts = async ({ keyword, category, tradeType, sort, page }
   }
 }
 
-export const fetchProduct = async (id) => {
-  if (id?.startsWith('p')) {
-    return mockProducts.find((product) => product.id === id)
-  }
-  return normalizeProduct(await request(`/api/products/${id}/`))
-}
+export const fetchProduct = async (id) => normalizeProduct(await request(`/api/products/${id}/`))
 
 export const fetchProductRaw = (id) => requestJson(`/api/products/${id}/`)
+
+export const fetchChatRooms = () => requestJson('/api/chatrooms/')
 
 export const fetchCategories = () => requestJson('/api/categories/')
 

@@ -3,6 +3,7 @@ import MainGrid from './pages/MainGrid'
 import ProductDetail from './pages/ProductDetail'
 import ProductCreate from './pages/ProductCreate'
 import Chat from './pages/Chat'
+import ChatList from './pages/ChatList'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -12,7 +13,7 @@ import BottomNav from './components/BottomNav'
 export default function App() {
   const { pathname } = useLocation()
   // 채팅/로그인/회원가입 화면은 자체 레이아웃을 쓰므로 네비 숨김
-  const hideNav = pathname.startsWith('/chat') || pathname === '/login' || pathname === '/signup'
+  const hideNav = pathname.startsWith('/chat/') || pathname === '/login' || pathname === '/signup'
 
   return (
     <div className="app-shell">
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/product/:id" element={<ProductDetail />} />
         <Route path="/create" element={<ProductCreate />} />
         <Route path="/product/:id/edit" element={<ProductCreate />} />
+        <Route path="/chats" element={<ChatList />} />
         <Route path="/chat/:productId" element={<Chat key={pathname} />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/login" element={<Login />} />

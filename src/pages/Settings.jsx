@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Avatar } from '../components/Common'
+import { Avatar, Swatch } from '../components/Common'
 import { useAuth } from '../context/AuthContext'
 import {
   fetchFriends,
@@ -15,6 +15,9 @@ import {
   deleteAccount,
   setToken,
   fetchMyReports,
+  fetchWishlist,
+  removeWishlist,
+  normalizeProduct,
 } from '../api'
 
 const MENU = [
@@ -68,13 +71,14 @@ export default function Settings() {
   if (view === 'notifications') return <NotificationsView onBack={() => setView('main')} />
   if (view === 'account') return <AccountView onBack={() => setView('main')} />
   if (view === 'reports') return <ReportsView onBack={() => setView('main')} />
+  if (view === 'wishlist') return <WishlistView onBack={() => setView('main')} />
 
   const handleMenu = (item) => {
     if (item === '친구 관리') setView('friends')
     else if (item === '알림 설정') setView('notifications')
     else if (item === '계정 관리') setView('account')
     else if (item === '신고 내역') setView('reports')
-    else if (item === '찜 목록') navigate('/')
+    else if (item === '찜 목록') setView('wishlist')
     else if (item === '로그아웃') {
       logout()
       navigate('/')
@@ -350,6 +354,69 @@ function NotificationsView({ onBack }) {
               aria-label="거래 상태 알림 토글"
             />
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WishlistView({ onBack }) {
+  const navigate = useNavigate()
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    fetchWishlist()
+      .then((data) => {
+        if (alive) setItems(data)
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const handleRemove = async (wishlistId) => {
+    try {
+      await removeWishlist(wishlistId)
+      setItems((prev) => prev.filter((item) => item.id !== wishlistId))
+    } catch (err) {
+      alert(err.message || '찜 해제에 실패했어요.')
+    }
+  }
+
+  return (
+    <div className="screen">
+      <div className="page-header">
+        <button className="back-btn" onClick={onBack}>←</button>
+        찜 목록
+      </div>
+      {loading ? (
+        <div className="empty-note">불러오는 중이에요.</div>
+      ) : (
+        <div className="settings-list">
+          {items.map((item) => {
+            const product = normalizeProduct(item.product_detail)
+            return (
+              <div key={item.id} className="friend-row" onClick={() => navigate(`/product/${product.id}`)}>
+                <Swatch colors={product.colors} image={product.images?.[0]} style={{ width: 44, height: 44, borderRadius: 8, flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0 }}>{product.title}</span>
+                <button
+                  className="text-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleRemove(item.id)
+                  }}
+                >
+                  삭제
+                </button>
+              </div>
+            )
+          })}
+          {items.length === 0 && <div className="empty-note">찜한 상품이 없어요.</div>}
         </div>
       )}
     </div>

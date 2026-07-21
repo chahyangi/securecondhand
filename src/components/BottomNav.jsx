@@ -2,7 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 
 const TABS = [
   { key: 'home', label: '홈', path: '/' },
-  { key: 'chat', label: '채팅', path: '/chat/p1' },
+  { key: 'chat', label: '채팅', path: '/chats' },
   { key: 'settings', label: '설정', path: '/settings' },
 ]
 

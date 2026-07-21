@@ -293,6 +293,21 @@ class FriendRequestViewSet(viewsets.ModelViewSet):
         return Response(UserSerializer(friends, many=True).data)
 
 
+VERIFICATION_ROLE_ORDER = {
+    ChatParticipant.Role.SELLER: 0,
+    ChatParticipant.Role.AGENT: 1,
+    ChatParticipant.Role.BUYER: 2,
+}
+
+
+def verification_chain(chatroom):
+    """판매자→(대리인)→구매자 순으로 정렬된, 아직 퇴장하지 않은 참여자 목록.
+    프론트(Chat.jsx computeChain)와 같은 순서 규칙을 서버에서도 그대로 적용해
+    hop_index별로 give/receive를 수행해야 할 사람을 신뢰성 있게 판별한다."""
+    participants = [p for p in chatroom.participants.all() if p.left_at is None]
+    return sorted(participants, key=lambda p: VERIFICATION_ROLE_ORDER.get(p.role, 99))
+
+
 def broadcast_system_message(chatroom, content):
     message = ChatMessage.objects.create(
         chatroom=chatroom,
@@ -396,11 +411,30 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
 
         hop_index = request.data.get('hop_index')
         side = request.data.get('side')
-        from_user_id = request.data.get('from_user')
-        to_user_id = request.data.get('to_user')
         is_last_hop = bool(request.data.get('is_last_hop'))
         if hop_index is None or side not in VerificationStep.Side.values:
             return Response({'detail': 'hop_index, side가 필요해요.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            hop_index = int(hop_index)
+        except (TypeError, ValueError):
+            return Response({'detail': 'hop_index가 올바르지 않아요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # from_user/to_user는 클라이언트가 보낸 값을 신뢰하지 않고, 서버가 참여자 목록에서
+        # 직접 계산한 체인으로 판매인증/구매인증을 누가 눌러야 하는지 판별한다. 그래야
+        # 구매자가 판매인증 버튼을, 판매자가 구매인증 버튼을 대신 눌러버리는 걸 막을 수 있다.
+        chain = verification_chain(chatroom)
+        hops = list(zip(chain, chain[1:]))
+        if hop_index < 0 or hop_index >= len(hops):
+            return Response({'detail': 'hop_index가 범위를 벗어났어요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        hop_from, hop_to = hops[hop_index]
+        expected_participant = hop_from if side == VerificationStep.Side.GIVE else hop_to
+        if request.user.id != expected_participant.user_id:
+            return Response(
+                {'detail': '본인 확인 단계만 진행할 수 있어요.'}, status=status.HTTP_403_FORBIDDEN
+            )
+        from_user_id = hop_from.user_id
+        to_user_id = hop_to.user_id
 
         step, _created = VerificationStep.objects.get_or_create(
             chatroom=chatroom, hop_index=hop_index, side=side,
