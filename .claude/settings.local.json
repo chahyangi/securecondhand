@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(kill 7003 7004)",
+      "Bash(curl -sf http://localhost:5173)",
+      "Bash(chromium-cli --help)",
+      "Bash(npm ls *)",
+      "Bash(node -e \"require.resolve\\('playwright'\\)\")",
+      "Bash(npx --no-install playwright --version)",
+      "Bash(find / -maxdepth 6 -iname \"playwright\" -type d)"
+    ]
+  }
+}
