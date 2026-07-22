@@ -32,7 +32,7 @@ class FriendRequest(TimeStampedModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=['requester', 'receiver'], name='unique_friend_request_pair'),
-            models.CheckConstraint(check=~models.Q(requester=models.F('receiver')), name='prevent_self_friend_request'),
+            models.CheckConstraint(condition=~models.Q(requester=models.F('receiver')), name='prevent_self_friend_request'),
         ]
 
 
