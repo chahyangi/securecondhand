@@ -1,16 +1,20 @@
+import requests
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import pagination, permissions, status, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -21,11 +25,13 @@ from .models import (
     ChatRoom,
     FriendRequest,
     NotificationSetting,
+    PaymentOrder,
     Product,
     ProductImage,
     Profile,
     Report,
     TradeVerification,
+    Transfer,
     VerificationStep,
     Wishlist,
 )
@@ -36,11 +42,13 @@ from .serializers import (
     ChatRoomSerializer,
     FriendRequestSerializer,
     NotificationSettingSerializer,
+    PaymentOrderSerializer,
     ProductImageSerializer,
     ProductSerializer,
     ProfileSerializer,
     ReportSerializer,
     TradeVerificationSerializer,
+    TransferSerializer,
     UserSerializer,
     VerificationStepSerializer,
     WishlistSerializer,
@@ -179,6 +187,10 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = Product.objects.select_related('seller', 'seller__profile', 'category').prefetch_related('images')
+        user = self.request.user
+        if not (user.is_authenticated and user.is_staff):
+            # 신고 누적으로 자동 차단된 상품은 관리자 화면(AdminProductViewSet)을 제외하고는 아무에게도 보이지 않는다.
+            queryset = queryset.exclude(is_blocked=True)
         q = self.request.query_params.get('q')
         category = self.request.query_params.get('category')
         trade_type = self.request.query_params.get('trade_type')
@@ -485,6 +497,28 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
         )
 
 
+# 서로 다른 신고자 몇 명 이상이 같은 대상을 신고하면 자동으로 제재할지. 한 명이 신고를
+# 여러 번 반복 제출해서 혼자 임계값을 채우는 어뷰징을 막기 위해 "서로 다른 신고자 수"로 센다.
+REPORT_BLOCK_THRESHOLD = 3
+
+
+def apply_auto_moderation(target_type, target_id):
+    """target에 대한 누적 신고(서로 다른 신고자 기준)가 임계값 이상이면 자동으로 제재한다.
+    상품은 차단(is_blocked=True)되어 목록/상세에서 숨겨지고, 유저는 휴면계정(is_active=False)
+    으로 전환되어 로그인이 막힌다. 관리자의 수동 처리(신고 처리완료 등)와는 별개로 동작한다."""
+    reporter_count = (
+        Report.objects.filter(target_type=target_type, target_id=target_id)
+        .values('reporter').distinct().count()
+    )
+    if reporter_count < REPORT_BLOCK_THRESHOLD:
+        return
+
+    if target_type == Report.TargetType.PRODUCT:
+        Product.objects.filter(pk=target_id).update(is_blocked=True)
+    elif target_type == Report.TargetType.USER:
+        User.objects.filter(pk=target_id).update(is_active=False)
+
+
 class ReportViewSet(viewsets.ModelViewSet):
     serializer_class = ReportSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -493,7 +527,8 @@ class ReportViewSet(viewsets.ModelViewSet):
         return Report.objects.filter(reporter=self.request.user)
 
     def perform_create(self, serializer):
-        serializer.save(reporter=self.request.user)
+        report = serializer.save(reporter=self.request.user)
+        apply_auto_moderation(report.target_type, report.target_id)
 
 
 class NotificationSettingView(APIView):
@@ -547,6 +582,153 @@ class AdminReportViewSet(viewsets.ReadOnlyModelViewSet):
         report.status = Report.Status.RESOLVED
         report.save(update_fields=['status', 'updated_at'])
         return Response(ReportSerializer(report).data)
+
+
+class TransferViewSet(viewsets.ModelViewSet):
+    """유저 간 송금. 원장(Transfer)은 생성 후 불변이라 update/delete는 노출하지 않는다."""
+
+    serializer_class = TransferSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def get_queryset(self):
+        return (
+            Transfer.objects.filter(Q(sender=self.request.user) | Q(receiver=self.request.user))
+            .select_related('sender', 'sender__profile', 'receiver', 'receiver__profile')
+            .order_by('-created_at')
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        receiver_username = serializer.validated_data.pop('receiver_username').strip()
+        amount = serializer.validated_data['amount']
+        chatroom = serializer.validated_data.get('chatroom')
+
+        receiver = User.objects.filter(username=receiver_username).exclude(pk=request.user.pk).first()
+        if receiver is None:
+            raise ValidationError({'receiver_username': '본인이 아닌 대상 사용자를 찾을 수 없어요.'})
+
+        if chatroom is not None and not chatroom.participants.filter(
+            user=request.user, left_at__isnull=True
+        ).exists():
+            raise ValidationError({'chatroom': '참여 중인 채팅방에서만 송금할 수 있어요.'})
+
+        # 두 잔액 행을 잠그는 순서를 항상 user id 오름차순으로 고정해, 두 명이 동시에
+        # 서로에게 송금할 때 서로 다른 순서로 잠그다가 교착상태에 빠지는 것을 막는다.
+        lock_ids = sorted([request.user.id, receiver.id])
+        with transaction.atomic():
+            profiles = {
+                p.user_id: p for p in Profile.objects.select_for_update().filter(user_id__in=lock_ids)
+            }
+            sender_profile = profiles[request.user.id]
+            receiver_profile = profiles[receiver.id]
+
+            if sender_profile.balance < amount:
+                raise ValidationError({'amount': '잔액이 부족해요.'})
+
+            sender_profile.balance -= amount
+            receiver_profile.balance += amount
+            sender_profile.save(update_fields=['balance', 'updated_at'])
+            receiver_profile.save(update_fields=['balance', 'updated_at'])
+
+            transfer = Transfer.objects.create(
+                sender=request.user,
+                receiver=receiver,
+                amount=amount,
+                memo=serializer.validated_data.get('memo', ''),
+                chatroom=chatroom,
+            )
+
+        if chatroom is not None:
+            broadcast_system_message(
+                chatroom,
+                f'{request.user.profile.nickname}님이 {receiver.profile.nickname}님에게 {amount:,}원을 송금했어요.',
+            )
+
+        return Response(TransferSerializer(transfer).data, status=status.HTTP_201_CREATED)
+
+
+class PaymentConfigView(APIView):
+    """결제위젯 초기화에 필요한 공개 client key만 내려준다. secret key는 절대 여기 안 나온다."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        return Response({'client_key': settings.TOSS_CLIENT_KEY})
+
+
+TOSS_CONFIRM_URL = 'https://api.tosspayments.com/v1/payments/confirm'
+
+
+class PaymentOrderViewSet(viewsets.ModelViewSet):
+    """토스페이먼츠 결제위젯(테스트 연동)으로 지갑을 충전하는 주문. update/delete는 노출하지 않는다."""
+
+    serializer_class = PaymentOrderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def get_queryset(self):
+        return PaymentOrder.objects.filter(user=self.request.user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+    @action(detail=False, methods=['post'])
+    def confirm(self, request):
+        order_id = request.data.get('order_id')
+        payment_key = request.data.get('payment_key')
+        amount = request.data.get('amount')
+        if not order_id or not payment_key or amount is None:
+            return Response(
+                {'detail': 'order_id, payment_key, amount이 모두 필요해요.'}, status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            return Response({'detail': 'amount가 올바르지 않아요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        order = PaymentOrder.objects.filter(order_id=order_id, user=request.user).first()
+        if order is None:
+            return Response({'detail': '주문을 찾을 수 없어요.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 이미 승인 처리된 주문이면 다시 적립하지 않고 그대로 반환한다 (새로고침/중복 요청 대비 멱등성).
+        if order.status == PaymentOrder.Status.CONFIRMED:
+            return Response(PaymentOrderSerializer(order).data)
+        if order.status == PaymentOrder.Status.FAILED:
+            return Response({'detail': '이미 실패 처리된 주문이에요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 결제창을 열 때 사용한 금액(서버가 주문 생성 시 기록해둔 값)과, 지금 승인 요청에 실린
+        # 금액이 다르면 클라이언트가 위젯 호출을 조작했을 가능성이 있으므로 토스에 확인하기 전에 차단한다.
+        if amount != order.amount:
+            return Response({'detail': '결제 금액이 주문 금액과 일치하지 않아요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            toss_response = requests.post(
+                TOSS_CONFIRM_URL,
+                json={'paymentKey': payment_key, 'orderId': order_id, 'amount': amount},
+                auth=(settings.TOSS_SECRET_KEY, ''),
+                timeout=10,
+            )
+        except requests.RequestException:
+            return Response({'detail': '결제 승인 서버와 통신에 실패했어요. 잠시 후 다시 시도해주세요.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if not toss_response.ok:
+            order.status = PaymentOrder.Status.FAILED
+            order.save(update_fields=['status', 'updated_at'])
+            detail = toss_response.json().get('message', '결제 승인에 실패했어요.') if toss_response.content else '결제 승인에 실패했어요.'
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            profile = Profile.objects.select_for_update().get(user=request.user)
+            profile.balance += order.amount
+            profile.save(update_fields=['balance', 'updated_at'])
+            order.status = PaymentOrder.Status.CONFIRMED
+            order.payment_key = payment_key
+            order.save(update_fields=['status', 'payment_key', 'updated_at'])
+
+        return Response(PaymentOrderSerializer(order).data)
 
 
 class AdminStatsView(APIView):

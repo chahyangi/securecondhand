@@ -11,6 +11,12 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-only-secret-key')
 DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if host.strip()]
 
+# 토스페이먼츠 결제위젯(테스트 연동) — 지갑 충전용. CLIENT_KEY는 공개 가능한 값이라
+# /api/payments/config/로 프론트에 그대로 내려주고, SECRET_KEY는 결제 승인(confirm) API를
+# 서버 간 호출할 때만 쓰고 절대 프론트/응답에 노출하지 않는다.
+TOSS_CLIENT_KEY = os.getenv('TOSS_CLIENT_KEY', '')
+TOSS_SECRET_KEY = os.getenv('TOSS_SECRET_KEY', '')
+
 INSTALLED_APPS = [
     'daphne',
     'django.contrib.admin',

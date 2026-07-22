@@ -142,7 +142,7 @@ export default function AdminDashboard() {
             <div className="settings-list">
               {products.map((p) => (
                 <div key={p.id} className="settings-row">
-                  <span>{p.title} · {p.status}</span>
+                  <span>{p.title} · {p.status}{p.isBlocked && ' · 자동차단됨'}</span>
                   <button className="text-btn" onClick={() => handleDeleteProduct(p.id)}>삭제</button>
                 </div>
               ))}

@@ -7,11 +7,13 @@ from .models import (
     ChatRoom,
     FriendRequest,
     NotificationSetting,
+    PaymentOrder,
     Product,
     ProductImage,
     Profile,
     Report,
     TradeVerification,
+    Transfer,
     VerificationStep,
     Wishlist,
 )
@@ -41,3 +43,17 @@ admin.site.register(ChatMessage)
 admin.site.register(TradeVerification)
 admin.site.register(VerificationStep)
 admin.site.register(NotificationSetting)
+
+
+@admin.register(Transfer)
+class TransferAdmin(admin.ModelAdmin):
+    list_display = ['id', 'sender', 'receiver', 'amount', 'created_at']
+    list_filter = ['created_at']
+    search_fields = ['sender__username', 'receiver__username']
+
+
+@admin.register(PaymentOrder)
+class PaymentOrderAdmin(admin.ModelAdmin):
+    list_display = ['id', 'order_id', 'user', 'amount', 'status', 'created_at']
+    list_filter = ['status']
+    search_fields = ['order_id', 'user__username']

@@ -160,6 +160,7 @@ export default function ProductDetail() {
 
       <div className="detail-body">
         <h1 className="detail-title">{product.title}</h1>
+        <div className="detail-price">{(product.price ?? 0).toLocaleString('ko-KR')}원</div>
 
         <div className="detail-meta">
           <span className="pill">{product.category}</span>

@@ -73,8 +73,15 @@ export function AuthProvider({ children }) {
     setUser(null)
   }, [])
 
+  // 송금 등으로 잔액이 바뀐 뒤 전체 새로고침 없이 헤더/설정 화면의 잔액 표시를 갱신하기 위함.
+  const refreshUser = useCallback(async () => {
+    const me = await fetchMe()
+    setUser(me)
+    return me
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

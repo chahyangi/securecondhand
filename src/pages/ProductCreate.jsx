@@ -36,6 +36,7 @@ export default function ProductCreate() {
     condition: '',
     tradeType: '',
     desc: '',
+    price: '',
   })
 
   useEffect(() => {
@@ -50,6 +51,7 @@ export default function ProductCreate() {
           condition: product.condition || '',
           tradeType: product.tradeType || '',
           desc: product.desc || '',
+          price: product.price ? String(product.price) : '',
         })
       })
       .finally(() => {
@@ -133,6 +135,10 @@ export default function ProductCreate() {
     if (!form.category) return alert('카테고리를 선택해주세요.')
     if (!form.condition) return alert('상품 상태를 선택해주세요.')
     if (!form.tradeType) return alert('거래방식을 선택해주세요.')
+    const priceValue = Number(form.price)
+    if (!form.price || !Number.isInteger(priceValue) || priceValue <= 0) {
+      return alert('가격을 1원 이상의 숫자로 입력해주세요.')
+    }
 
     setSubmitting(true)
     try {
@@ -146,6 +152,7 @@ export default function ProductCreate() {
         condition: form.condition,
         tradeType: form.tradeType === '직거래' ? 'direct' : form.tradeType === '택배' ? 'delivery' : form.tradeType,
         description: form.desc.trim(),
+        price: priceValue,
       }
 
       let currentProductId = productId
@@ -286,6 +293,17 @@ export default function ProductCreate() {
           placeholder="상품 제목"
           value={form.title}
           onChange={(e) => setField('title', e.target.value)}
+        />
+
+        <div className="filter-label">가격 (원)</div>
+        <input
+          type="number"
+          min="1"
+          step="1"
+          className="form-input"
+          placeholder="예: 30000"
+          value={form.price}
+          onChange={(e) => setField('price', e.target.value)}
         />
 
         <div className="filter-label">카테고리</div>

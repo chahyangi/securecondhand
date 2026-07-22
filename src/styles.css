@@ -284,6 +284,8 @@ input { font-family: inherit; }
 
 .detail-title { font-family: var(--font-serif); font-size: 21px; margin: 0 0 8px; font-weight: 500; }
 
+.detail-price { font-size: 18px; font-weight: 700; color: var(--moss); margin: 0 0 10px; }
+
 .detail-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 
 .pill {

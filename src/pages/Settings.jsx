@@ -18,10 +18,12 @@ import {
   fetchWishlist,
   removeWishlist,
   normalizeProduct,
+  fetchTransfers,
+  createTransfer,
 } from '../api'
 
 const MENU = [
-  { section: '내 활동', items: ['찜 목록'] },
+  { section: '내 활동', items: ['찜 목록', '송금'] },
   { section: '관계', items: ['친구 관리'] },
   { section: '환경설정', items: ['알림 설정', '계정 관리'] },
   { section: '', items: ['신고 내역', '로그아웃'] },
@@ -72,6 +74,7 @@ export default function Settings() {
   if (view === 'account') return <AccountView onBack={() => setView('main')} />
   if (view === 'reports') return <ReportsView onBack={() => setView('main')} />
   if (view === 'wishlist') return <WishlistView onBack={() => setView('main')} />
+  if (view === 'wallet') return <WalletView onBack={() => setView('main')} />
 
   const handleMenu = (item) => {
     if (item === '친구 관리') setView('friends')
@@ -79,6 +82,7 @@ export default function Settings() {
     else if (item === '계정 관리') setView('account')
     else if (item === '신고 내역') setView('reports')
     else if (item === '찜 목록') setView('wishlist')
+    else if (item === '송금') setView('wallet')
     else if (item === '로그아웃') {
       logout()
       navigate('/')
@@ -98,6 +102,12 @@ export default function Settings() {
           <div className="name">{user.nickname}</div>
           <div className="edit">{user.username}</div>
         </div>
+        {user.balance != null && (
+          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>잔액</div>
+            <div style={{ fontWeight: 700 }}>{user.balance.toLocaleString('ko-KR')}원</div>
+          </div>
+        )}
       </div>
 
       {user.isStaff && (
@@ -417,6 +427,137 @@ function WishlistView({ onBack }) {
             )
           })}
           {items.length === 0 && <div className="empty-note">찜한 상품이 없어요.</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WalletView({ onBack }) {
+  const navigate = useNavigate()
+  const { user, refreshUser } = useAuth()
+  const [transfers, setTransfers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [receiverInput, setReceiverInput] = useState('')
+  const [amountInput, setAmountInput] = useState('')
+  const [memoInput, setMemoInput] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const data = await fetchTransfers()
+      setTransfers(Array.isArray(data.results) ? data.results : data)
+    } catch {
+      // 조회 실패해도 빈 목록으로 둠
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleSend = async () => {
+    setError('')
+    const receiverUsername = receiverInput.trim()
+    const amount = Number(amountInput)
+    if (!receiverUsername) return setError('받는 사람의 아이디를 입력해주세요.')
+    if (receiverUsername === user.username) return setError('본인에게는 송금할 수 없어요.')
+    if (!Number.isInteger(amount) || amount <= 0) return setError('금액을 1원 이상의 숫자로 입력해주세요.')
+
+    setBusy(true)
+    try {
+      await createTransfer({ receiverUsername, amount, memo: memoInput.trim() })
+      setReceiverInput('')
+      setAmountInput('')
+      setMemoInput('')
+      await Promise.all([load(), refreshUser()])
+    } catch (err) {
+      setError(err.message || '송금에 실패했어요.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="screen">
+      <div className="page-header">
+        <button className="back-btn" onClick={onBack}>←</button>
+        송금
+      </div>
+
+      <div className="create-body">
+        <div className="filter-label">내 잔액</div>
+        <p style={{ fontSize: 20, fontWeight: 700, margin: '0 0 12px' }}>
+          {(user.balance ?? 0).toLocaleString('ko-KR')}원
+        </p>
+        <button
+          className="chat-cta"
+          style={{ background: 'var(--surface)', color: 'var(--moss)', border: '0.5px solid var(--line)' }}
+          onClick={() => navigate('/wallet/topup')}
+        >
+          충전하기 (토스페이먼츠 테스트 결제)
+        </button>
+
+        <div className="filter-label" style={{ marginTop: 20 }}>받는 사람 아이디</div>
+        <input
+          type="text"
+          className="form-input"
+          placeholder="상대방 username"
+          value={receiverInput}
+          onChange={(e) => setReceiverInput(e.target.value)}
+        />
+        <div className="filter-label" style={{ marginTop: 10 }}>금액 (원)</div>
+        <input
+          type="number"
+          min="1"
+          step="1"
+          className="form-input"
+          placeholder="예: 10000"
+          value={amountInput}
+          onChange={(e) => setAmountInput(e.target.value)}
+        />
+        <div className="filter-label" style={{ marginTop: 10 }}>메모 (선택)</div>
+        <input
+          type="text"
+          className="form-input"
+          placeholder="예: 노트북 대금"
+          value={memoInput}
+          onChange={(e) => setMemoInput(e.target.value)}
+        />
+        {error && <p className="modal-sub" style={{ color: 'var(--danger)' }}>{error}</p>}
+        <button className="chat-cta" onClick={handleSend} disabled={busy} style={{ marginTop: 10 }}>
+          {busy ? '송금 중...' : '송금하기'}
+        </button>
+
+        <div className="filter-label" style={{ marginTop: 28 }}>거래 내역</div>
+      </div>
+
+      {loading ? (
+        <div className="empty-note">불러오는 중이에요.</div>
+      ) : (
+        <div className="settings-list">
+          {transfers.map((t) => {
+            const isSent = t.sender.id === user.id
+            const counterpart = isSent ? t.receiver : t.sender
+            return (
+              <div key={t.id} className="settings-row">
+                <span>
+                  {isSent ? `${counterpart.nickname}님에게` : `${counterpart.nickname}님으로부터`}
+                  {t.memo ? ` · ${t.memo}` : ''}
+                </span>
+                <span style={{ color: isSent ? 'var(--danger)' : 'var(--moss)', fontWeight: 600 }}>
+                  {isSent ? '-' : '+'}
+                  {t.amount.toLocaleString('ko-KR')}원
+                </span>
+              </div>
+            )
+          })}
+          {transfers.length === 0 && <div className="empty-note">송금 내역이 없어요.</div>}
         </div>
       )}
     </div>

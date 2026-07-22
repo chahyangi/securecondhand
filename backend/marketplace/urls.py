@@ -14,10 +14,13 @@ from .views import (
     LoginView,
     LogoutView,
     NotificationSettingView,
+    PaymentConfigView,
+    PaymentOrderViewSet,
     ProductViewSet,
     ProfileViewSet,
     ReportViewSet,
     SignupView,
+    TransferViewSet,
     UserLookupView,
     WishlistViewSet,
 )
@@ -31,6 +34,8 @@ router.register('wishlists', WishlistViewSet, basename='wishlist')
 router.register('friends/requests', FriendRequestViewSet, basename='friend-request')
 router.register('chatrooms', ChatRoomViewSet, basename='chatroom')
 router.register('reports', ReportViewSet, basename='report')
+router.register('transfers', TransferViewSet, basename='transfer')
+router.register('payments/orders', PaymentOrderViewSet, basename='payment-order')
 router.register('admin/users', AdminUserViewSet, basename='admin-user')
 router.register('admin/products', AdminProductViewSet, basename='admin-product')
 router.register('admin/reports', AdminReportViewSet, basename='admin-report')
@@ -44,5 +49,6 @@ urlpatterns = [
     path('users/lookup/', UserLookupView.as_view(), name='users-lookup'),
     path('notifications/settings/', NotificationSettingView.as_view(), name='notification-settings'),
     path('admin/stats/', AdminStatsView.as_view(), name='admin-stats'),
+    path('payments/config/', PaymentConfigView.as_view(), name='payment-config'),
     path('', include(router.urls)),
 ]

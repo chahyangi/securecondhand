@@ -8,6 +8,8 @@ import Settings from './pages/Settings'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import AdminDashboard from './pages/AdminDashboard'
+import TopUp from './pages/TopUp'
+import TopUpResult from './pages/TopUpResult'
 import BottomNav from './components/BottomNav'
 
 export default function App() {
@@ -28,6 +30,8 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/wallet/topup" element={<TopUp />} />
+        <Route path="/wallet/topup/result" element={<TopUpResult />} />
       </Routes>
       {!hideNav && <BottomNav />}
     </div>

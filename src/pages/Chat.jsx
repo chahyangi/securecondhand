@@ -17,6 +17,7 @@ import {
   normalizeChatMessage,
   normalizeParticipant,
   chatSocketUrl,
+  createTransfer,
 } from '../api'
 
 // 거래 상태: 협의중 → (구간별 인계완료) → 거래확정 → 거래완료
@@ -49,7 +50,7 @@ const computeHops = (chain) => chain.slice(0, -1).map((from, i) => ({ from, to: 
 export default function Chat() {
   const { productId } = useParams()
   const navigate = useNavigate()
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, refreshUser } = useAuth()
 
   const [product, setProduct] = useState(null)
   const [room, setRoom] = useState(null)
@@ -60,6 +61,10 @@ export default function Chat() {
   const [errorMsg, setErrorMsg] = useState('')
   const [input, setInput] = useState('')
   const [inviteOpen, setInviteOpen] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
+  const [transferAmount, setTransferAmount] = useState('')
+  const [transferBusy, setTransferBusy] = useState(false)
+  const [transferError, setTransferError] = useState('')
   const [tradeStatus, setTradeStatus] = useState('협의중')
   const [giveConfirmed, setGiveConfirmed] = useState(new Set())
   const [receiveConfirmed, setReceiveConfirmed] = useState(new Set())
@@ -165,6 +170,8 @@ export default function Chat() {
 
   const chain = useMemo(() => computeChain(participants), [participants])
   const hops = useMemo(() => computeHops(chain), [chain])
+  const sellerNode = chain.find((p) => p.role === 'seller')
+  const canSendMoney = !!user && !!sellerNode && sellerNode.id !== String(user.id)
   const isHopDone = (i) => giveConfirmed.has(hops[i].from.id) && receiveConfirmed.has(hops[i].to.id)
   const firstUnfinished = hops.findIndex((_, i) => !isHopDone(i))
   const activeHopIndex = firstUnfinished === -1 ? hops.length : firstUnfinished
@@ -222,6 +229,37 @@ export default function Chat() {
       alert(err.message || '대리인 초대에 실패했어요.')
     }
     setInviteOpen(false)
+  }
+
+  const openTransferModal = () => {
+    setTransferError('')
+    setTransferAmount(product.price ? String(product.price) : '')
+    setTransferOpen(true)
+  }
+
+  const handleTransfer = async () => {
+    const amount = Number(transferAmount)
+    if (!Number.isInteger(amount) || amount <= 0) {
+      setTransferError('금액을 1원 이상의 숫자로 입력해주세요.')
+      return
+    }
+    setTransferBusy(true)
+    setTransferError('')
+    try {
+      await createTransfer({
+        receiverUsername: sellerNode.username,
+        amount,
+        memo: product.title,
+        chatroomId: room.id,
+      })
+      await refreshUser()
+      setTransferOpen(false)
+      setTransferAmount('')
+    } catch (err) {
+      setTransferError(err.message || '송금에 실패했어요.')
+    } finally {
+      setTransferBusy(false)
+    }
   }
 
   const confirmStep = async (hopIndex, side) => {
@@ -321,9 +359,16 @@ export default function Chat() {
         </button>
       </div>
 
-      <div className="product-banner" onClick={() => navigate(`/product/${product.id}`)}>
-        <Swatch colors={product.colors} image={product.images?.[0]} style={{ width: 34, height: 34, borderRadius: 8 }} />
-        <span>{product.title}</span>
+      <div className="product-banner">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }} onClick={() => navigate(`/product/${product.id}`)}>
+          <Swatch colors={product.colors} image={product.images?.[0]} style={{ width: 34, height: 34, borderRadius: 8 }} />
+          <span>{product.title} · {(product.price ?? 0).toLocaleString('ko-KR')}원</span>
+        </div>
+        {canSendMoney && (
+          <button className="text-btn" style={{ color: 'var(--moss)' }} onClick={openTransferModal}>
+            송금하기
+          </button>
+        )}
       </div>
 
       {errorMsg && <div className="system-msg">{errorMsg}</div>}
@@ -418,6 +463,27 @@ export default function Chat() {
             {friends.length === 0 && (
               <p className="modal-sub">초대할 수 있는 친구가 없어요. (친구 요청을 수락한 사이여야 해요)</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {transferOpen && (
+        <div className="modal-backdrop" onClick={() => setTransferOpen(false)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <h3 className="modal-title">{sellerNode.nickname}님에게 송금</h3>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              className="form-input"
+              placeholder="금액 (원)"
+              value={transferAmount}
+              onChange={(e) => setTransferAmount(e.target.value)}
+            />
+            {transferError && <p className="modal-sub" style={{ color: 'var(--danger)' }}>{transferError}</p>}
+            <button className="chat-cta" onClick={handleTransfer} disabled={transferBusy} style={{ marginTop: 10 }}>
+              {transferBusy ? '송금 중...' : '송금하기'}
+            </button>
           </div>
         </div>
       )}

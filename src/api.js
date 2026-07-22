@@ -63,7 +63,9 @@ export const normalizeProduct = (product) => {
       nickname: seller?.nickname || seller?.username || '판매자',
       icon: seller?.icon || (seller?.nickname || seller?.username || '판').slice(0, 1),
     },
+    price: product.price ?? 0,
     status: STATUS_LABELS[product.status] ?? product.status,
+    isBlocked: !!product.is_blocked,
     wishCount: product.wish_count ?? 0,
   }
 }
@@ -121,6 +123,7 @@ const normalizeUser = (user, profile) => ({
   icon: profile?.icon || user.icon || (user.nickname || user.username || '나').slice(0, 1),
   isStaff: !!user.is_staff,
   isActive: user.is_active !== false,
+  balance: profile?.balance ?? user.balance ?? null,
 })
 
 export const signup = async ({ username, password, nickname }) => {
@@ -171,7 +174,7 @@ export const fetchChatRooms = () => requestJson('/api/chatrooms/')
 
 export const fetchCategories = () => requestJson('/api/categories/')
 
-export const createProduct = ({ title, category, condition, tradeType, description }) =>
+export const createProduct = ({ title, category, condition, tradeType, description, price }) =>
   requestJson('/api/products/', {
     method: 'POST',
     body: JSON.stringify({
@@ -180,10 +183,11 @@ export const createProduct = ({ title, category, condition, tradeType, descripti
       condition,
       trade_type: tradeType,
       description,
+      price,
     }),
   })
 
-export const updateProduct = (productId, { title, category, condition, tradeType, description }) =>
+export const updateProduct = (productId, { title, category, condition, tradeType, description, price }) =>
   requestJson(`/api/products/${productId}/`, {
     method: 'PATCH',
     body: JSON.stringify({
@@ -192,6 +196,7 @@ export const updateProduct = (productId, { title, category, condition, tradeType
       condition,
       trade_type: tradeType,
       description,
+      price,
     }),
   })
 
@@ -301,6 +306,7 @@ export const normalizeChatMessage = (m) => ({
 export const normalizeParticipant = (p) => ({
   chatParticipantId: p.id,
   id: String(p.user_detail.id),
+  username: p.user_detail.username,
   nickname: p.user_detail.nickname || p.user_detail.username,
   icon: p.user_detail.icon || (p.user_detail.nickname || p.user_detail.username || '?').slice(0, 1),
   role: p.role,
@@ -379,3 +385,31 @@ export const deleteAdminProduct = (productId) => requestJson(`/api/admin/product
 export const fetchAdminReports = () => requestJson('/api/admin/reports/')
 
 export const resolveAdminReport = (reportId) => requestJson(`/api/admin/reports/${reportId}/resolve/`, { method: 'PATCH' })
+
+// --- 송금 ---
+
+export const fetchTransfers = () => requestJson('/api/transfers/')
+
+export const createTransfer = ({ receiverUsername, amount, memo, chatroomId }) =>
+  requestJson('/api/transfers/', {
+    method: 'POST',
+    body: JSON.stringify({
+      receiver_username: receiverUsername,
+      amount,
+      memo: memo || '',
+      chatroom: chatroomId ?? null,
+    }),
+  })
+
+// --- 지갑 충전 (토스페이먼츠 결제위젯, 테스트 연동) ---
+
+export const fetchPaymentConfig = () => requestJson('/api/payments/config/')
+
+export const createPaymentOrder = (amount) =>
+  requestJson('/api/payments/orders/', { method: 'POST', body: JSON.stringify({ amount }) })
+
+export const confirmPaymentOrder = ({ orderId, paymentKey, amount }) =>
+  requestJson('/api/payments/orders/confirm/', {
+    method: 'POST',
+    body: JSON.stringify({ order_id: orderId, payment_key: paymentKey, amount }),
+  })

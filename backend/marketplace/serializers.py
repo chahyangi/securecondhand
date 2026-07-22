@@ -11,8 +11,10 @@ from .models import (
     Product,
     ProductImage,
     Profile,
+    PaymentOrder,
     Report,
     TradeVerification,
+    Transfer,
     VerificationStep,
     Wishlist,
 )
@@ -32,7 +34,8 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Profile
-        fields = ['id', 'user', 'nickname', 'icon', 'created_at', 'updated_at']
+        fields = ['id', 'user', 'nickname', 'icon', 'balance', 'created_at', 'updated_at']
+        read_only_fields = ['balance']
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -64,13 +67,15 @@ class ProductSerializer(serializers.ModelSerializer):
             'condition',
             'trade_type',
             'description',
+            'price',
             'status',
+            'is_blocked',
             'images',
             'wish_count',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['seller']
+        read_only_fields = ['seller', 'is_blocked']
 
 
 class WishlistSerializer(serializers.ModelSerializer):
@@ -153,3 +158,31 @@ class ReportSerializer(serializers.ModelSerializer):
         model = Report
         fields = ['id', 'reporter', 'target_type', 'target_id', 'reason', 'status', 'created_at', 'updated_at']
         read_only_fields = ['reporter', 'status']
+
+
+class TransferSerializer(serializers.ModelSerializer):
+    sender = UserSerializer(read_only=True)
+    receiver = UserSerializer(read_only=True)
+    receiver_username = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = Transfer
+        fields = ['id', 'sender', 'receiver', 'receiver_username', 'amount', 'memo', 'chatroom', 'created_at']
+        read_only_fields = ['sender', 'receiver']
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('송금액은 1원 이상이어야 해요.')
+        return value
+
+
+class PaymentOrderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentOrder
+        fields = ['order_id', 'amount', 'status', 'created_at']
+        read_only_fields = ['order_id', 'status', 'created_at']
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('충전 금액은 1원 이상이어야 해요.')
+        return value

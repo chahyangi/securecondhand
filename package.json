@@ -10,10 +10,12 @@
     "dev": "vite",
     "backend": "cd backend && .venv/bin/python manage.py runserver",
     "start": "./start.sh",
+    "stop": "./off.sh",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tosspayments/tosspayments-sdk": "^2.7.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.1"
