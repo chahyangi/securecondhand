@@ -39,6 +39,15 @@ export function AuthProvider({ children }) {
     }
   }, [token])
 
+  useEffect(() => {
+    const onExpired = () => {
+      setTokenState(null)
+      setUser(null)
+    }
+    window.addEventListener('auth:expired', onExpired)
+    return () => window.removeEventListener('auth:expired', onExpired)
+  }, [])
+
   const login = useCallback(async (username, password) => {
     const { token: newToken, user: loggedInUser } = await apiLogin({ username, password })
     persistToken(newToken)

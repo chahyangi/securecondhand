@@ -90,6 +90,17 @@ const authHeaders = () => {
   return token ? { Authorization: `Token ${token}` } : {}
 }
 
+// 비밀번호 변경/다른 기기 로그아웃 등으로 토큰이 서버에서 이미 폐기된 뒤에도
+// 이 탭은 로그인 상태인 줄 알고 있다가, API를 부를 때마다 "토큰이 없다" 같은
+// 원문 에러만 반복해서 보여주는 문제가 있었다. 401을 받으면 로컬 토큰을 지우고
+// AuthContext가 들어서 로그아웃 화면으로 전환하도록 이벤트를 쏜다.
+const handleUnauthorized = (response) => {
+  if (response.status === 401 && getToken()) {
+    setToken(null)
+    window.dispatchEvent(new Event('auth:expired'))
+  }
+}
+
 const requestJson = async (url, options = {}) => {
   const response = await fetch(url, {
     ...options,
@@ -97,6 +108,7 @@ const requestJson = async (url, options = {}) => {
   })
   const data = await response.json().catch(() => null)
   if (!response.ok) {
+    handleUnauthorized(response)
     throw new Error(data?.detail || `요청 실패 (${response.status})`)
   }
   return data
@@ -204,7 +216,10 @@ export const uploadProductImage = async (productId, file, { order = 0, isReprese
     body: form,
   })
   const data = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(data?.detail || `이미지 업로드 실패 (${response.status})`)
+  if (!response.ok) {
+    handleUnauthorized(response)
+    throw new Error(data?.detail || `이미지 업로드 실패 (${response.status})`)
+  }
   return data
 }
 
@@ -306,7 +321,10 @@ export const uploadChatImage = async (roomId, file) => {
     body: form,
   })
   const data = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(data?.detail || `사진 업로드 실패 (${response.status})`)
+  if (!response.ok) {
+    handleUnauthorized(response)
+    throw new Error(data?.detail || `사진 업로드 실패 (${response.status})`)
+  }
   return data.url
 }
 
