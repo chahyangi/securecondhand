@@ -34,8 +34,12 @@ export default function TopUp() {
         amount: { value: order.amount, currency: 'KRW' },
         orderId: order.order_id,
         orderName: '지갑 충전',
-        successUrl: `${window.location.origin}/wallet/topup/result`,
-        failUrl: `${window.location.origin}/wallet/topup/result`,
+        // 이 앱은 HashRouter를 쓰기 때문에 라우트는 "#" 뒤에 와야 한다. 토스가 successUrl/failUrl
+        // 뒤에 paymentKey/orderId/amount(또는 code/message) 쿼리스트링을 그대로 append하는데,
+        // "#" 없이 넘기면 HashRouter가 이걸 그냥 "/" 로 인식해서 TopUpResult가 아니라 메인 화면이
+        // 뜨고, confirmPaymentOrder가 아예 호출되지 않아 결제는 성공해도 잔액이 충전되지 않았다.
+        successUrl: `${window.location.origin}/#/wallet/topup/result`,
+        failUrl: `${window.location.origin}/#/wallet/topup/result`,
       })
     } catch (err) {
       setError(err.message || '결제 요청에 실패했어요.')

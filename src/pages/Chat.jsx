@@ -18,6 +18,7 @@ import {
   normalizeParticipant,
   chatSocketUrl,
   createTransfer,
+  markChatRoomRead,
 } from '../api'
 
 // 거래 상태: 협의중 → (구간별 인계완료) → 거래확정 → 거래완료
@@ -105,6 +106,8 @@ export default function Chat() {
       if (!alive) return
       setFeed(messages.map(normalizeChatMessage))
       setFriends(friendList)
+      // 채팅방을 열어본 시점에, 지금까지 쌓인 안 읽은 메시지를 전부 읽음 처리한다.
+      markChatRoomRead(roomData.id).catch(() => {})
 
       const gives = new Set(
         verification.steps.filter((s) => s.side === 'give').map((s) => String(s.user)),
@@ -133,6 +136,9 @@ export default function Chat() {
           return
         }
         setFeed((prev) => [...prev, normalizeChatMessage(data)])
+        // 방을 보고 있는 동안 새로 도착한 메시지도 곧바로 읽음 처리해서, 배지가
+        // 실제로 안 읽고 있던 방에만 남도록 한다.
+        markChatRoomRead(roomData.id).catch(() => {})
       }
       socket.onerror = () => setErrorMsg('실시간 연결에 문제가 있어요. 새로고침해보세요.')
     }

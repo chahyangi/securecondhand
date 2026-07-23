@@ -4,6 +4,7 @@ import ProductDetail from './pages/ProductDetail'
 import ProductCreate from './pages/ProductCreate'
 import Chat from './pages/Chat'
 import ChatList from './pages/ChatList'
+import NotificationFeed from './pages/NotificationFeed'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/create" element={<ProductCreate />} />
         <Route path="/product/:id/edit" element={<ProductCreate />} />
         <Route path="/chats" element={<ChatList />} />
+        <Route path="/notifications" element={<NotificationFeed />} />
         <Route path="/chat/:productId" element={<Chat key={pathname} />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/login" element={<Login />} />

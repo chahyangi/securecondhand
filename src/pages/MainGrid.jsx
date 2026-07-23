@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { products as mockProducts, CATEGORIES } from '../mock/data'
-import { Swatch } from '../components/Common'
+import { Swatch, Logo } from '../components/Common'
 import { fetchProducts } from '../api'
 import { useAuth } from '../context/AuthContext'
 
@@ -92,7 +92,7 @@ export default function MainGrid() {
   return (
     <div className="screen">
       <div className="topbar">
-        <span className="wordmark">마당</span>
+        <Logo />
         <div className="search-bar" onClick={() => setSearchOpen((v) => !v)}>
           {keyword || category !== '전체' || tradeType !== '전체'
             ? `${keyword || ''} ${category !== '전체' ? '· ' + category : ''} ${tradeType !== '전체' ? '· ' + tradeType : ''}`

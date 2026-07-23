@@ -257,6 +257,8 @@ export const startChat = (productId) =>
 
 export const fetchChatRoom = (roomId) => requestJson(`/api/chatrooms/${roomId}/`)
 
+export const markChatRoomRead = (roomId) => requestJson(`/api/chatrooms/${roomId}/read/`, { method: 'POST' })
+
 export const fetchChatMessages = (roomId) => requestJson(`/api/chatrooms/${roomId}/messages/`)
 
 export const inviteParticipant = (roomId, userId, role) =>
@@ -358,6 +360,10 @@ export const fetchNotificationSettings = () => requestJson('/api/notifications/s
 export const updateNotificationSettings = (patch) =>
   requestJson('/api/notifications/settings/', { method: 'PATCH', body: JSON.stringify(patch) })
 
+export const fetchNotificationFeed = () => requestJson('/api/notifications/feed/')
+
+export const markNotificationsRead = () => requestJson('/api/notifications/feed/', { method: 'POST' })
+
 export const changePassword = ({ currentPassword, newPassword }) =>
   requestJson('/api/auth/password/', {
     method: 'POST',
@@ -382,9 +388,14 @@ export const fetchAdminProducts = async () => {
 
 export const deleteAdminProduct = (productId) => requestJson(`/api/admin/products/${productId}/`, { method: 'DELETE' })
 
+export const toggleAdminProductBlock = async (productId) =>
+  normalizeProduct(await requestJson(`/api/admin/products/${productId}/block/`, { method: 'PATCH' }))
+
 export const fetchAdminReports = () => requestJson('/api/admin/reports/')
 
 export const resolveAdminReport = (reportId) => requestJson(`/api/admin/reports/${reportId}/resolve/`, { method: 'PATCH' })
+
+export const sanctionAdminReport = (reportId) => requestJson(`/api/admin/reports/${reportId}/sanction/`, { method: 'PATCH' })
 
 // --- 송금 ---
 

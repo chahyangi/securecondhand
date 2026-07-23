@@ -198,6 +198,51 @@ class NotificationSetting(TimeStampedModel):
     trade_enabled = models.BooleanField(default=True)
 
 
+class Notification(TimeStampedModel):
+    """"알림 모음" 화면에 모이는 개별 알림. chat_enabled/trade_enabled이 꺼져 있으면
+    애초에 생성되지 않는다(설정이 실제 효과를 가지도록). kind로 채팅방 목록/하단 네비의
+    빨간 원(chat)·파란 원(trade) 배지 색을 구분한다."""
+
+    class Kind(models.TextChoices):
+        CHAT = 'chat', '채팅'
+        TRADE = 'trade', '거래'
+
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    content = models.CharField(max_length=255)
+    chatroom = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, null=True, blank=True, related_name='notifications')
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['recipient', 'is_read']),
+        ]
+
+
+def create_notifications_for_message(message):
+    """새로 생성된 ChatMessage 하나를 보고, 그 방의 나머지 참여자들에게 알림을 만든다.
+    message_type이 system이면 거래 관련 이벤트(참여/퇴장/인증/판매완료/자동송금 등)이므로
+    kind=trade, 그 외(text/image)는 kind=chat으로 분류한다. 각 수신자의 NotificationSetting에서
+    해당 종류가 꺼져 있으면 그 사람에게는 만들지 않는다 — 설정 on/off가 실제로 의미를 갖게 하기 위함."""
+    kind = Notification.Kind.TRADE if message.message_type == ChatMessage.MessageType.SYSTEM else Notification.Kind.CHAT
+    setting_field = 'trade_enabled' if kind == Notification.Kind.TRADE else 'chat_enabled'
+
+    participants = message.chatroom.participants.filter(left_at__isnull=True)
+    if message.sender_id:
+        participants = participants.exclude(user_id=message.sender_id)
+
+    for participant in participants:
+        setting, _ = NotificationSetting.objects.get_or_create(user=participant.user)
+        if getattr(setting, setting_field):
+            Notification.objects.create(
+                recipient=participant.user,
+                kind=kind,
+                content=message.content,
+                chatroom=message.chatroom,
+            )
+
+
 class Report(TimeStampedModel):
     class TargetType(models.TextChoices):
         USER = 'user', '사용자'

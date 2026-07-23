@@ -7,8 +7,10 @@ import {
   suspendAdminUser,
   fetchAdminProducts,
   deleteAdminProduct,
+  toggleAdminProductBlock,
   fetchAdminReports,
   resolveAdminReport,
+  sanctionAdminReport,
 } from '../api'
 
 export default function AdminDashboard() {
@@ -76,10 +78,31 @@ export default function AdminDashboard() {
     }
   }
 
+  const handleToggleBlock = async (id) => {
+    try {
+      const updated = await toggleAdminProductBlock(id)
+      setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+    } catch (err) {
+      alert(err.message || '처리에 실패했어요.')
+    }
+  }
+
   const handleResolveReport = async (id) => {
     try {
       const updated = await resolveAdminReport(id)
       setReports((prev) => prev.map((r) => (r.id === id ? updated : r)))
+    } catch (err) {
+      alert(err.message || '처리에 실패했어요.')
+    }
+  }
+
+  const handleSanctionReport = async (report) => {
+    const label = report.target_type === 'product' ? '이 상품을 차단할까요?' : '이 사용자를 정지할까요?'
+    if (!window.confirm(label)) return
+    try {
+      const updated = await sanctionAdminReport(report.id)
+      setReports((prev) => prev.map((r) => (r.id === report.id ? updated : r)))
+      await load()
     } catch (err) {
       alert(err.message || '처리에 실패했어요.')
     }
@@ -142,8 +165,13 @@ export default function AdminDashboard() {
             <div className="settings-list">
               {products.map((p) => (
                 <div key={p.id} className="settings-row">
-                  <span>{p.title} · {p.status}{p.isBlocked && ' · 자동차단됨'}</span>
-                  <button className="text-btn" onClick={() => handleDeleteProduct(p.id)}>삭제</button>
+                  <span>{p.title} · {p.status}{p.isBlocked && ' · 차단됨'}</span>
+                  <span style={{ display: 'flex', gap: 8 }}>
+                    <button className="text-btn" onClick={() => handleToggleBlock(p.id)}>
+                      {p.isBlocked ? '차단 해제' : '차단'}
+                    </button>
+                    <button className="text-btn" onClick={() => handleDeleteProduct(p.id)}>삭제</button>
+                  </span>
                 </div>
               ))}
               {products.length === 0 && <div className="empty-note">상품이 없어요.</div>}
@@ -158,7 +186,12 @@ export default function AdminDashboard() {
                     [{r.target_type}] {r.reason} · {r.status === 'resolved' ? '처리완료' : '대기중'}
                   </span>
                   {r.status !== 'resolved' && (
-                    <button className="text-btn" onClick={() => handleResolveReport(r.id)}>처리완료</button>
+                    <span style={{ display: 'flex', gap: 8 }}>
+                      <button className="text-btn" onClick={() => handleSanctionReport(r)}>
+                        {r.target_type === 'product' ? '상품 차단' : '유저 정지'}
+                      </button>
+                      <button className="text-btn" onClick={() => handleResolveReport(r.id)}>처리완료</button>
+                    </span>
                   )}
                 </div>
               ))}

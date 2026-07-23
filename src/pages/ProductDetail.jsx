@@ -15,6 +15,10 @@ export default function ProductDetail() {
   const [photoIdx, setPhotoIdx] = useState(0)
   const [product, setProduct] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportTarget, setReportTarget] = useState('product')
+  const [reportReason, setReportReason] = useState('')
+  const [reportBusy, setReportBusy] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -100,15 +104,25 @@ export default function ProductDetail() {
     }
   }
 
-  const handleReport = async () => {
+  const openReport = () => {
     if (!user) return requireLogin()
-    const reason = window.prompt('신고 사유를 입력해주세요.')
-    if (!reason || !reason.trim()) return
+    setReportTarget('product')
+    setReportReason('')
+    setReportOpen(true)
+  }
+
+  const submitReport = async () => {
+    if (!reportReason.trim()) return
+    setReportBusy(true)
     try {
-      await createReport({ targetType: 'product', targetId: Number(product.id), reason: reason.trim() })
+      const targetId = reportTarget === 'product' ? Number(product.id) : Number(seller.id)
+      await createReport({ targetType: reportTarget, targetId, reason: reportReason.trim() })
+      setReportOpen(false)
       alert('신고가 접수되었어요.')
     } catch (err) {
       alert(err.message || '신고 접수에 실패했어요.')
+    } finally {
+      setReportBusy(false)
     }
   }
 
@@ -139,7 +153,7 @@ export default function ProductDetail() {
             </button>
           </>
         ) : (
-          <button className="text-btn" onClick={handleReport}>
+          <button className="text-btn" onClick={openReport}>
             신고
           </button>
         )}
@@ -221,6 +235,39 @@ export default function ProductDetail() {
           {product.status === '판매완료' ? '판매가 완료된 상품이에요' : '채팅하기'}
         </button>
       </div>
+
+      {reportOpen && (
+        <div className="modal-backdrop" onClick={() => setReportOpen(false)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <h3 className="modal-title">신고하기</h3>
+            <div className="chip-row">
+              <button
+                className={`chip ${reportTarget === 'product' ? 'on' : ''}`}
+                onClick={() => setReportTarget('product')}
+              >
+                이 상품
+              </button>
+              <button
+                className={`chip ${reportTarget === 'user' ? 'on' : ''}`}
+                onClick={() => setReportTarget('user')}
+              >
+                판매자 ({seller.nickname})
+              </button>
+            </div>
+            <textarea
+              className="form-textarea"
+              placeholder="신고 사유를 입력해주세요."
+              rows={4}
+              value={reportReason}
+              onChange={(e) => setReportReason(e.target.value)}
+              style={{ marginTop: 10 }}
+            />
+            <button className="chat-cta" onClick={submitReport} disabled={reportBusy || !reportReason.trim()} style={{ marginTop: 10 }}>
+              {reportBusy ? '접수 중...' : '신고 접수'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

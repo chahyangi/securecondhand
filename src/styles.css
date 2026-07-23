@@ -58,10 +58,37 @@ input { font-family: inherit; }
   z-index: 5;
 }
 
-.wordmark {
+.brand-logo {
   font-family: var(--font-serif);
-  font-size: 21px;
-  letter-spacing: 0.5px;
+  color: var(--moss);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.brand-secure {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  margin-bottom: 2px;
+}
+
+.brand-lower {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.brand-condhand {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.brand-lock {
+  width: 15px;
+  height: 17px;
   color: var(--moss);
   flex-shrink: 0;
 }
@@ -213,6 +240,18 @@ input { font-family: inherit; }
   border-radius: 50%;
   background: currentColor;
 }
+
+.nav-dot-wrap { position: relative; display: inline-flex; }
+
+.nav-unread-dot {
+  position: absolute;
+  top: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.nav-unread-dot-chat { right: -6px; background: var(--danger); }
+.nav-unread-dot-trade { right: -14px; background: #2f6fa3; }
 
 /* ===== 페이지 헤더 (뒤로가기) ===== */
 .page-header {
@@ -562,6 +601,30 @@ input { font-family: inherit; }
 
 .friend-row:last-child { border-bottom: none; }
 .friend-row .avatar { width: 32px; height: 32px; font-size: 12px; }
+
+.notif-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.notif-dot-chat { background: var(--danger); }
+.notif-dot-trade { background: #2f6fa3; }
+
+.unread-badge {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 /* ===== 설정 ===== */
 .settings-profile {

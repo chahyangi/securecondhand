@@ -3,7 +3,7 @@ import json
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
-from .models import ChatMessage, ChatParticipant, ChatRoom
+from .models import ChatMessage, ChatParticipant, ChatRoom, create_notifications_for_message
 from .serializers import ChatMessageSerializer
 
 
@@ -67,4 +67,5 @@ class ChatConsumer(AsyncWebsocketConsumer):
             message_type=message_type,
             content=content,
         )
+        create_notifications_for_message(message)
         return ChatMessageSerializer(message).data

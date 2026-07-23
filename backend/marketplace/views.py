@@ -24,6 +24,7 @@ from .models import (
     ChatParticipant,
     ChatRoom,
     FriendRequest,
+    Notification,
     NotificationSetting,
     PaymentOrder,
     Product,
@@ -34,6 +35,7 @@ from .models import (
     Transfer,
     VerificationStep,
     Wishlist,
+    create_notifications_for_message,
 )
 from .serializers import (
     CategorySerializer,
@@ -41,6 +43,7 @@ from .serializers import (
     ChatParticipantSerializer,
     ChatRoomSerializer,
     FriendRequestSerializer,
+    NotificationSerializer,
     NotificationSettingSerializer,
     PaymentOrderSerializer,
     ProductImageSerializer,
@@ -327,6 +330,7 @@ def broadcast_system_message(chatroom, content):
         message_type=ChatMessage.MessageType.SYSTEM,
         content=content,
     )
+    create_notifications_for_message(message)
     channel_layer = get_channel_layer()
     if channel_layer is not None:
         async_to_sync(channel_layer.group_send)(
@@ -395,7 +399,8 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
         if request.method == 'POST':
             serializer = ChatMessageSerializer(data={**request.data, 'chatroom': chatroom.id})
             serializer.is_valid(raise_exception=True)
-            serializer.save(chatroom=chatroom, sender=request.user)
+            message = serializer.save(chatroom=chatroom, sender=request.user)
+            create_notifications_for_message(message)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         messages = chatroom.messages.select_related('sender', 'sender__profile').order_by('created_at')
         return Response(ChatMessageSerializer(messages, many=True).data)
@@ -408,7 +413,24 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'image 파일이 필요해요.'}, status=status.HTTP_400_BAD_REQUEST)
 
         path = default_storage.save(f'chat/{chatroom.id}/{image_file.name}', image_file)
-        return Response({'url': default_storage.url(path)}, status=status.HTTP_201_CREATED)
+        # default_storage.url()은 스킴/호스트가 없는 절대경로(/media/...)만 돌려준다. 상품 사진은
+        # DRF ImageField가 request.build_absolute_uri()로 감싸서 절대 URL을 만들어주는데,
+        # 여기는 시리얼라이저를 안 쓰다 보니 그 처리가 빠져 있었다 — 그 결과 프론트(vite, 5173)가
+        # 이 경로를 자기 자신의 origin으로 잘못 해석해서(vite는 /media를 프록시하지 않음)
+        # 채팅 사진이 깨져 보였다. 상품 사진과 동일하게 절대 URL로 만들어 반환한다.
+        url = request.build_absolute_uri(default_storage.url(path))
+        return Response({'url': url}, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def read(self, request, pk=None):
+        """이 방에서 아직 안 읽은(자기가 안 보낸) 메시지 전부를 읽음 처리한다.
+        ChatMessage.read_by는 원래 있었지만 아무도 쓰지 않던 필드였다 — 이걸로
+        채팅방 목록/하단 네비의 안 읽은 메시지 배지를 계산한다."""
+        chatroom = self.get_object()
+        unread = chatroom.messages.exclude(sender=request.user).exclude(read_by=request.user)
+        for message in unread:
+            message.read_by.add(request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['get', 'post'], url_path='verification')
     def verification(self, request, pk=None):
@@ -472,6 +494,42 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
             chatroom.status = ChatRoom.Status.CONFIRMED if is_last_hop else ChatRoom.Status.HANDOVER_DONE
             chatroom.save(update_fields=['status', 'updated_at'])
 
+            # 거래의 마지막 구간(구매자의 최종 인수 확인)까지 끝났을 때만 자동 결제를 실행한다.
+            # is_last_hop은 클라이언트가 보낸 값이라 신뢰하지 않고, hop_index가 실제로 체인의
+            # 마지막 구간인지를 서버가 직접 계산해서 판단한다.
+            if hop_index == len(hops) - 1:
+                # 거래(대면 인수인계) 자체가 끝났다는 뜻이므로, 결제 성공 여부와 무관하게
+                # 상품 상태를 판매완료로 넘긴다. 이미 판매완료면 건드리지 않는다(멱등성).
+                product = chatroom.product
+                if product.status != Product.Status.SOLD:
+                    product.status = Product.Status.SOLD
+                    product.save(update_fields=['status', 'updated_at'])
+                    broadcast_system_message(chatroom, f'"{product.title}" 상품이 판매완료로 처리됐어요.')
+
+                buyer = next((p for p in chain if p.role == ChatParticipant.Role.BUYER), None)
+                seller = next((p for p in chain if p.role == ChatParticipant.Role.SELLER), None)
+                already_paid = Transfer.objects.filter(chatroom=chatroom).exists()
+                if buyer and seller and chatroom.product.price > 0 and not already_paid:
+                    try:
+                        execute_transfer(
+                            sender=buyer.user,
+                            receiver=seller.user,
+                            amount=chatroom.product.price,
+                            memo=chatroom.product.title,
+                            chatroom=chatroom,
+                        )
+                        broadcast_system_message(
+                            chatroom,
+                            f'거래확정 — {buyer.user.profile.nickname}님이 {seller.user.profile.nickname}님에게 '
+                            f'{chatroom.product.price:,}원을 자동으로 송금했어요.',
+                        )
+                    except InsufficientBalanceError:
+                        broadcast_system_message(
+                            chatroom,
+                            '거래는 확정됐지만 구매자의 잔액이 부족해 자동 송금에 실패했어요. '
+                            '설정 › 송금에서 직접 송금해주세요.',
+                        )
+
         channel_layer = get_channel_layer()
         if channel_layer is not None:
             async_to_sync(channel_layer.group_send)(
@@ -503,11 +561,15 @@ REPORT_BLOCK_THRESHOLD = 3
 
 
 def apply_auto_moderation(target_type, target_id):
-    """target에 대한 누적 신고(서로 다른 신고자 기준)가 임계값 이상이면 자동으로 제재한다.
+    """target에 대한 미처리(대기중) 신고(서로 다른 신고자 기준)가 임계값 이상이면 자동으로 제재한다.
     상품은 차단(is_blocked=True)되어 목록/상세에서 숨겨지고, 유저는 휴면계정(is_active=False)
-    으로 전환되어 로그인이 막힌다. 관리자의 수동 처리(신고 처리완료 등)와는 별개로 동작한다."""
+    으로 전환되어 로그인이 막힌다. 관리자의 수동 처리(신고 처리완료 등)와는 별개로 동작한다.
+
+    이미 처리완료된 신고는 세지 않는다 — 그대로 다 세면 관리자가 신고를 처리완료하거나
+    차단을 직접 해제해도, 그다음 신고가 딱 1건만 더 들어와도 과거의 처리된 신고까지 합쳐져
+    다시 임계값을 넘겨버려서 즉시 재차단되는 문제가 있었다."""
     reporter_count = (
-        Report.objects.filter(target_type=target_type, target_id=target_id)
+        Report.objects.filter(target_type=target_type, target_id=target_id, status=Report.Status.PENDING)
         .values('reporter').distinct().count()
     )
     if reporter_count < REPORT_BLOCK_THRESHOLD:
@@ -546,6 +608,26 @@ class NotificationSettingView(APIView):
         return Response(serializer.data)
 
 
+class NotificationFeedView(APIView):
+    """"알림 모음" — 채팅방 목록 최상단에 고정으로 뜨는 알림 피드. kind별 안 읽은 개수를
+    함께 내려줘서 프론트가 채팅(빨간 원)/거래(파란 원)를 구분해서 배지를 그릴 수 있게 한다."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        notifications = Notification.objects.filter(recipient=request.user)[:50]
+        unread = Notification.objects.filter(recipient=request.user, is_read=False)
+        return Response({
+            'results': NotificationSerializer(notifications, many=True).data,
+            'unread_chat': unread.filter(kind=Notification.Kind.CHAT).count(),
+            'unread_trade': unread.filter(kind=Notification.Kind.TRADE).count(),
+        })
+
+    def post(self, request):
+        Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class AdminUserViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = User.objects.select_related('profile').order_by('-date_joined')
     serializer_class = UserSerializer
@@ -556,6 +638,13 @@ class AdminUserViewSet(viewsets.ReadOnlyModelViewSet):
         target = self.get_object()
         target.is_active = not target.is_active
         target.save(update_fields=['is_active'])
+        if target.is_active:
+            # 정지를 풀 때 관련 대기중 신고도 함께 처리완료 처리한다. 안 그러면 신고들이
+            # 여전히 '대기중'으로 남아 있어서, 다음에 신고가 딱 1건만 더 들어와도
+            # apply_auto_moderation이 그 대기중 신고들까지 다시 합산해 즉시 재정지시켜버린다.
+            Report.objects.filter(
+                target_type=Report.TargetType.USER, target_id=target.id, status=Report.Status.PENDING
+            ).update(status=Report.Status.RESOLVED)
         return Response(UserSerializer(target).data)
 
 
@@ -570,6 +659,20 @@ class AdminProductViewSet(viewsets.ReadOnlyModelViewSet):
         product.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=['patch'])
+    def block(self, request, pk=None):
+        """자동 차단(신고 3건)이든 관리자 sanction이든, is_blocked를 토글해 차단/차단 해제한다."""
+        product = self.get_object()
+        product.is_blocked = not product.is_blocked
+        product.save(update_fields=['is_blocked', 'updated_at'])
+        if not product.is_blocked:
+            # 차단 해제 시 관련 대기중 신고도 함께 처리완료 처리 — 안 그러면 신고가 대기중으로
+            # 남아 있다가 새 신고 1건만 더 들어와도 임계값을 다시 넘겨 즉시 재차단된다.
+            Report.objects.filter(
+                target_type=Report.TargetType.PRODUCT, target_id=product.id, status=Report.Status.PENDING
+            ).update(status=Report.Status.RESOLVED)
+        return Response(ProductSerializer(product).data)
+
 
 class AdminReportViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Report.objects.select_related('reporter', 'reporter__profile').order_by('-created_at')
@@ -578,10 +681,52 @@ class AdminReportViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['patch'])
     def resolve(self, request, pk=None):
+        """실제 제재 없이 "검토했지만 조치 불필요"로 종결. 제재하려면 sanction을 쓸 것."""
         report = self.get_object()
         report.status = Report.Status.RESOLVED
         report.save(update_fields=['status', 'updated_at'])
         return Response(ReportSerializer(report).data)
+
+    @action(detail=True, methods=['patch'])
+    def sanction(self, request, pk=None):
+        """신고 대상에 실제 제재(상품 차단 / 유저 정지)를 적용하면서 신고를 처리완료로 바꾼다.
+        신고 3건 자동 차단(apply_auto_moderation)과 별개로, 관리자가 신고 1건만 보고도
+        직접 판단해서 제재할 수 있는 경로다. 대상이 이미 삭제됐다면 조용히 건너뛴다."""
+        report = self.get_object()
+        if report.target_type == Report.TargetType.PRODUCT:
+            Product.objects.filter(pk=report.target_id).update(is_blocked=True)
+        elif report.target_type == Report.TargetType.USER:
+            User.objects.filter(pk=report.target_id).update(is_active=False)
+        report.status = Report.Status.RESOLVED
+        report.save(update_fields=['status', 'updated_at'])
+        return Response(ReportSerializer(report).data)
+
+
+class InsufficientBalanceError(Exception):
+    pass
+
+
+def execute_transfer(sender, receiver, amount, memo='', chatroom=None):
+    """두 유저의 Profile.balance를 원자적으로 이동시키고 Transfer 레코드를 만든다.
+    잔액이 부족하면 InsufficientBalanceError를 던진다. sender==receiver, amount<=0 같은
+    입력값 검증은 호출하는 쪽(뷰)에서 미리 끝내야 한다 — 여기는 잔액 이동/원장 생성만 책임진다."""
+    # 두 잔액 행을 잠그는 순서를 항상 user id 오름차순으로 고정해, 두 명이 동시에
+    # 서로에게 송금할 때 서로 다른 순서로 잠그다가 교착상태에 빠지는 것을 막는다.
+    lock_ids = sorted([sender.id, receiver.id])
+    with transaction.atomic():
+        profiles = {p.user_id: p for p in Profile.objects.select_for_update().filter(user_id__in=lock_ids)}
+        sender_profile = profiles[sender.id]
+        receiver_profile = profiles[receiver.id]
+
+        if sender_profile.balance < amount:
+            raise InsufficientBalanceError()
+
+        sender_profile.balance -= amount
+        receiver_profile.balance += amount
+        sender_profile.save(update_fields=['balance', 'updated_at'])
+        receiver_profile.save(update_fields=['balance', 'updated_at'])
+
+        return Transfer.objects.create(sender=sender, receiver=receiver, amount=amount, memo=memo, chatroom=chatroom)
 
 
 class TransferViewSet(viewsets.ModelViewSet):
@@ -615,31 +760,16 @@ class TransferViewSet(viewsets.ModelViewSet):
         ).exists():
             raise ValidationError({'chatroom': '참여 중인 채팅방에서만 송금할 수 있어요.'})
 
-        # 두 잔액 행을 잠그는 순서를 항상 user id 오름차순으로 고정해, 두 명이 동시에
-        # 서로에게 송금할 때 서로 다른 순서로 잠그다가 교착상태에 빠지는 것을 막는다.
-        lock_ids = sorted([request.user.id, receiver.id])
-        with transaction.atomic():
-            profiles = {
-                p.user_id: p for p in Profile.objects.select_for_update().filter(user_id__in=lock_ids)
-            }
-            sender_profile = profiles[request.user.id]
-            receiver_profile = profiles[receiver.id]
-
-            if sender_profile.balance < amount:
-                raise ValidationError({'amount': '잔액이 부족해요.'})
-
-            sender_profile.balance -= amount
-            receiver_profile.balance += amount
-            sender_profile.save(update_fields=['balance', 'updated_at'])
-            receiver_profile.save(update_fields=['balance', 'updated_at'])
-
-            transfer = Transfer.objects.create(
+        try:
+            transfer = execute_transfer(
                 sender=request.user,
                 receiver=receiver,
                 amount=amount,
                 memo=serializer.validated_data.get('memo', ''),
                 chatroom=chatroom,
             )
+        except InsufficientBalanceError:
+            raise ValidationError({'amount': '잔액이 부족해요.'})
 
         if chatroom is not None:
             broadcast_system_message(

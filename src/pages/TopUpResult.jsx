@@ -11,11 +11,20 @@ export default function TopUpResult() {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    const paymentKey = searchParams.get('paymentKey')
-    const orderId = searchParams.get('orderId')
-    const amount = searchParams.get('amount')
-    const failCode = searchParams.get('code')
-    const failMessage = searchParams.get('message')
+    // 이 앱은 HashRouter라 react-router의 useSearchParams()는 "#" 안쪽 쿼리스트링만 읽는다.
+    // 그런데 토스가 successUrl/failUrl에 paymentKey 등을 붙일 때 URL()로 파싱해서 붙이는 것으로
+    // 보여서(스펙대로면 쿼리스트링은 "#" 앞에 와야 함), 실제 리다이렉트는
+    // "http://host/?paymentKey=...#/wallet/topup/result" 형태로 온다 — 즉 진짜 쿼리스트링은
+    // "#" 앞(window.location.search)에 있고 useSearchParams()에는 안 잡힌다. 그래서 두 위치를
+    // 다 확인하고, 혹시 모를 형태 변경에도 대비해 "#" 앞쪽을 우선한다.
+    const topLevelParams = new URLSearchParams(window.location.search)
+    const getParam = (key) => topLevelParams.get(key) ?? searchParams.get(key)
+
+    const paymentKey = getParam('paymentKey')
+    const orderId = getParam('orderId')
+    const amount = getParam('amount')
+    const failCode = getParam('code')
+    const failMessage = getParam('message')
 
     if (failCode) {
       setStatus('fail')

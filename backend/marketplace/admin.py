@@ -6,6 +6,7 @@ from .models import (
     ChatParticipant,
     ChatRoom,
     FriendRequest,
+    Notification,
     NotificationSetting,
     PaymentOrder,
     Product,
@@ -57,3 +58,10 @@ class PaymentOrderAdmin(admin.ModelAdmin):
     list_display = ['id', 'order_id', 'user', 'amount', 'status', 'created_at']
     list_filter = ['status']
     search_fields = ['order_id', 'user__username']
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ['id', 'recipient', 'kind', 'is_read', 'created_at']
+    list_filter = ['kind', 'is_read']
+    search_fields = ['recipient__username', 'content']

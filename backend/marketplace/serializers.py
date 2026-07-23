@@ -7,6 +7,7 @@ from .models import (
     ChatParticipant,
     ChatRoom,
     FriendRequest,
+    Notification,
     NotificationSetting,
     Product,
     ProductImage,
@@ -116,10 +117,17 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 class ChatRoomSerializer(serializers.ModelSerializer):
     product_detail = ProductSerializer(source='product', read_only=True)
     participants = ChatParticipantSerializer(many=True, read_only=True)
+    unread_count = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
-        fields = ['id', 'product', 'product_detail', 'status', 'participants', 'created_at', 'updated_at']
+        fields = ['id', 'product', 'product_detail', 'status', 'participants', 'unread_count', 'created_at', 'updated_at']
+
+    def get_unread_count(self, obj):
+        request = self.context.get('request')
+        if request is None or not request.user.is_authenticated:
+            return 0
+        return obj.messages.exclude(sender=request.user).exclude(read_by=request.user).count()
 
 
 class TradeVerificationSerializer(serializers.ModelSerializer):
@@ -149,6 +157,12 @@ class NotificationSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = NotificationSetting
         fields = ['chat_enabled', 'trade_enabled']
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'kind', 'content', 'chatroom', 'is_read', 'created_at']
 
 
 class ReportSerializer(serializers.ModelSerializer):

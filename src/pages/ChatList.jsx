@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Swatch, Avatar } from '../components/Common'
 import { useAuth } from '../context/AuthContext'
-import { fetchChatRooms, normalizeParticipant } from '../api'
+import { fetchChatRooms, fetchNotificationFeed, normalizeParticipant } from '../api'
 
 const ROOM_STATUS_LABEL = {
   negotiating: '협의중',
@@ -17,6 +17,7 @@ export default function ChatList() {
   const [rooms, setRooms] = useState([])
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState('')
+  const [notifCounts, setNotifCounts] = useState({ unread_chat: 0, unread_trade: 0 })
 
   useEffect(() => {
     if (authLoading) return
@@ -35,6 +36,11 @@ export default function ChatList() {
       .finally(() => {
         if (alive) setLoading(false)
       })
+    fetchNotificationFeed()
+      .then((data) => {
+        if (alive) setNotifCounts(data)
+      })
+      .catch(() => {})
     return () => {
       alive = false
     }
@@ -56,6 +62,33 @@ export default function ChatList() {
       <div className="page-header">
         <span style={{ flex: 1 }}>채팅</span>
       </div>
+
+      {!errorMsg && (
+        <div className="friend-row" onClick={() => navigate('/notifications')}>
+          <div
+            className="avatar"
+            style={{ width: 44, height: 44, flexShrink: 0, background: 'var(--moss-light)' }}
+          >
+            🔔
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 500 }}>알림 모음</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>새 메시지·거래 상태 알림</div>
+          </div>
+          <span style={{ display: 'flex', gap: 6 }}>
+            {notifCounts.unread_chat > 0 && (
+              <span className="unread-badge" style={{ background: 'var(--danger)' }}>
+                {notifCounts.unread_chat}
+              </span>
+            )}
+            {notifCounts.unread_trade > 0 && (
+              <span className="unread-badge" style={{ background: '#2f6fa3' }}>
+                {notifCounts.unread_trade}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       {errorMsg && <div className="empty-note">{errorMsg}</div>}
 
@@ -89,6 +122,7 @@ export default function ChatList() {
                 <Avatar key={p.id} user={p} />
               ))}
             </div>
+            {room.unread_count > 0 && <span className="unread-badge">{room.unread_count}</span>}
           </div>
         )
       })}
