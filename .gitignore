@@ -7,3 +7,6 @@ backend/media/
 backend/__pycache__/
 backend/**/__pycache__/
 *.pyc
+
+# LMS 제출용 보고서 초안 (코드 아님, git에 안 올림)
+제출자료/

@@ -16,6 +16,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import (
@@ -71,6 +72,8 @@ class IsStaffUser(permissions.BasePermission):
 
 class SignupView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
 
     def post(self, request):
         username = (request.data.get('username') or '').strip()
@@ -94,6 +97,8 @@ class SignupView(APIView):
 
 class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
 
     def post(self, request):
         username = (request.data.get('username') or '').strip()
@@ -310,8 +315,9 @@ class FriendRequestViewSet(viewsets.ModelViewSet):
 
 VERIFICATION_ROLE_ORDER = {
     ChatParticipant.Role.SELLER: 0,
-    ChatParticipant.Role.AGENT: 1,
-    ChatParticipant.Role.BUYER: 2,
+    ChatParticipant.Role.SELLER_AGENT: 1,
+    ChatParticipant.Role.BUYER_AGENT: 2,
+    ChatParticipant.Role.BUYER: 3,
 }
 
 
@@ -372,11 +378,29 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def participants(self, request, pk=None):
         chatroom = self.get_object()
-        if chatroom.participants.filter(left_at__isnull=True).count() >= 4:
+        active = chatroom.participants.filter(left_at__isnull=True)
+        if active.count() >= 4:
             return Response({'detail': '채팅방은 최대 4인까지 참여할 수 있습니다.'}, status=status.HTTP_400_BAD_REQUEST)
-        serializer = ChatParticipantSerializer(data=request.data)
+
+        # 대리인이 판매자 측인지 구매자 측인지는 클라이언트가 보낸 role을 믿지 않고,
+        # "누가 초대했는지"로 서버가 직접 정한다 — 그래야 인증 체인 순서(판매자→판매자
+        # 대리인→구매자 대리인→구매자)가 초대 순서와 무관하게 항상 정확하게 계산된다.
+        requester = active.filter(user=request.user).first()
+        if requester is None:
+            return Response({'detail': '채팅방 참여자만 대리인을 초대할 수 있어요.'}, status=status.HTTP_403_FORBIDDEN)
+        role_map = {
+            ChatParticipant.Role.SELLER: ChatParticipant.Role.SELLER_AGENT,
+            ChatParticipant.Role.BUYER: ChatParticipant.Role.BUYER_AGENT,
+        }
+        new_role = role_map.get(requester.role)
+        if new_role is None:
+            return Response({'detail': '대리인은 대리인을 초대할 수 없어요.'}, status=status.HTTP_400_BAD_REQUEST)
+        if active.filter(role=new_role).exists():
+            return Response({'detail': '이미 대리인이 있어요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = ChatParticipantSerializer(data={'user': request.data.get('user')})
         serializer.is_valid(raise_exception=True)
-        participant = serializer.save(chatroom=chatroom)
+        participant = serializer.save(chatroom=chatroom, role=new_role)
         broadcast_system_message(
             chatroom, f'{participant.user.profile.nickname}님이 {participant.get_role_display()}(으)로 참여했어요.'
         )
@@ -735,6 +759,8 @@ class TransferViewSet(viewsets.ModelViewSet):
     serializer_class = TransferSerializer
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ['get', 'post', 'head', 'options']
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'transfer'
 
     def get_queryset(self):
         return (

@@ -261,10 +261,12 @@ export const markChatRoomRead = (roomId) => requestJson(`/api/chatrooms/${roomId
 
 export const fetchChatMessages = (roomId) => requestJson(`/api/chatrooms/${roomId}/messages/`)
 
-export const inviteParticipant = (roomId, userId, role) =>
+// role(판매자 측/구매자 측 대리인)은 클라이언트가 정하지 않는다 — 서버가 초대자 본인의
+// 역할을 보고 자동으로 정한다.
+export const inviteParticipant = (roomId, userId) =>
   requestJson(`/api/chatrooms/${roomId}/participants/`, {
     method: 'POST',
-    body: JSON.stringify({ user: userId, role }),
+    body: JSON.stringify({ user: userId }),
   })
 
 export const leaveParticipant = (roomId, userId) =>

@@ -497,8 +497,11 @@ input { font-family: inherit; }
 
 .msg-avatar { width: 26px; height: 26px; font-size: 10px; }
 
+.bubble-col { display: flex; flex-direction: column; gap: 2px; max-width: 70%; }
+
+.msg-sender { font-size: 10px; color: var(--muted); margin-left: 2px; }
+
 .bubble {
-  max-width: 70%;
   padding: 9px 13px;
   border-radius: 16px;
   font-size: 14px;
@@ -511,7 +514,7 @@ input { font-family: inherit; }
 
 .bubble-image {
   padding: 0;
-  max-width: 60%;
+  max-width: 85%;
   max-height: 240px;
   object-fit: cover;
   display: block;

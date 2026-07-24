@@ -8,7 +8,6 @@ import {
   fetchChatRoom,
   fetchChatMessages,
   inviteParticipant,
-  leaveParticipant,
   fetchFriends,
   fetchVerification,
   postVerificationStep,
@@ -22,15 +21,17 @@ import {
 } from '../api'
 
 // 거래 상태: 협의중 → (구간별 인계완료) → 거래확정 → 거래완료
-// 인증 체인: 판매자 → (판매자.대리인) → (구매자.대리인) → 구매자
+// 인증 체인: 판매자 → (판매자 대리인) → (구매자 대리인) → 구매자
 // 괄호로 표시된 대리인은 없을 수도 있다. 각 구간은 넘기는 쪽/받는 쪽이 각자 버튼을 눌러야 완료된다.
 //   판매자: 판매인증(주는 쪽) / 구매자: 구매인증(받는 쪽) / 대리인: 인수인증(받는 쪽) → 인계인증(주는 쪽)
 //
 // 인증 진행 상태(누가 어느 버튼을 눌렀는지)는 VerificationStep으로 서버에 저장되고, 새로고침 시
-// GET .../verification/ 으로 복원된다. 이 화면은 '나'가 항상 구매자인 단일 세션 데모라 구매자
-// 대리인만 초대할 수 있다. 판매자 대리인은 실제 판매자 세션이 붙을 때 같은 체인 로직을 그대로 쓰면 된다.
-const ROLE_NAME = { seller: '판매자', agent: '대리인', buyer: '구매자' }
-const ROLE_ORDER = { seller: 0, agent: 1, buyer: 2 }
+// GET .../verification/ 으로 복원된다. 대리인이 판매자 측인지 구매자 측인지는 서버가 초대자의
+// 역할을 보고 정하므로(seller_agent/buyer_agent), 초대 순서와 무관하게 항상 판매자→판매자 대리인→
+// 구매자 대리인→구매자 순으로 정렬된다.
+const ROLE_NAME = { seller: '판매자', seller_agent: '판매자 대리인', buyer_agent: '구매자 대리인', buyer: '구매자' }
+const ROLE_ORDER = { seller: 0, seller_agent: 1, buyer_agent: 2, buyer: 3 }
+const isAgentRole = (role) => role === 'seller_agent' || role === 'buyer_agent'
 const ROOM_STATUS_LABEL = {
   negotiating: '협의중',
   handover_done: '인계완료',
@@ -202,15 +203,7 @@ export default function Chat() {
 
       setTradeStatus('거래확정')
       setTimeout(async () => {
-        const agents = chain.filter((p) => p.role === 'agent')
-        for (const agent of agents) {
-          try {
-            await leaveParticipant(room.id, agent.id)
-          } catch {
-            // 이미 나갔거나 실패해도 데모 흐름은 계속 진행
-          }
-        }
-        if (agents.length) await refreshParticipants()
+        // 거래 완료 후에도 분쟁 시 재확인할 수 있도록 대리인을 자동 퇴장시키지 않고 채팅방에 남겨둔다.
         setTradeStatus('거래완료')
         try {
           await updateChatRoomStatus(room.id, 'done')
@@ -223,13 +216,13 @@ export default function Chat() {
     })
   }, [giveConfirmed, receiveConfirmed, hops.length])
 
-  const inviteBuyerAgent = async (friend) => {
+  const inviteAgent = async (friend) => {
     if (chain.length >= 4) {
       alert('채팅방은 최대 4인까지 참여할 수 있어요.')
       return
     }
     try {
-      await inviteParticipant(room.id, friend.id, 'agent')
+      await inviteParticipant(room.id, friend.id)
       await refreshParticipants()
     } catch (err) {
       alert(err.message || '대리인 초대에 실패했어요.')
@@ -340,6 +333,11 @@ export default function Chat() {
 
   const byId = Object.fromEntries(participants.map((p) => [p.id, p]))
   const others = chain.filter((p) => p.id !== String(user.id))
+  const myNode = chain.find((p) => p.id === String(user.id))
+  const mySide = myNode?.role === 'seller' ? 'seller' : myNode?.role === 'buyer' ? 'buyer' : null
+  const sideAgentRole = mySide === 'seller' ? 'seller_agent' : mySide === 'buyer' ? 'buyer_agent' : null
+  const hasSideAgent = sideAgentRole ? chain.some((p) => p.role === sideAgentRole) : false
+  const canInviteAgent = tradeStatus === '협의중' && !!mySide && !hasSideAgent && chain.length < 4
 
   return (
     <div className="screen chat-screen">
@@ -352,17 +350,20 @@ export default function Chat() {
         </div>
         <div className="chat-title">
           <div className="chat-names">
-            {others.map((p) => (p.role === 'agent' ? `${p.nickname}(대리)` : p.nickname)).join(', ')}
+            {others.map((p) => (isAgentRole(p.role) ? `${p.nickname}(대리)` : p.nickname)).join(', ')}
           </div>
           <div className="chat-status">{tradeStatus} · {chain.length}인</div>
         </div>
-        <button
-          className="text-btn"
-          onClick={() => setInviteOpen(true)}
-          disabled={tradeStatus !== '협의중' || chain.some((p) => p.role === 'agent')}
-        >
-          대리인 초대
-        </button>
+        {mySide && (
+          <button
+            className="text-btn"
+            onClick={() => setInviteOpen(true)}
+            disabled={!canInviteAgent}
+            title={hasSideAgent ? '이미 대리인이 있어요.' : tradeStatus !== '협의중' ? '거래가 시작되면 대리인을 초대할 수 없어요.' : undefined}
+          >
+            {mySide === 'seller' ? '판매자 대리인 초대' : '구매자 대리인 초대'}
+          </button>
+        )}
       </div>
 
       <div className="product-banner">
@@ -425,11 +426,16 @@ export default function Chat() {
                 <Avatar user={byId[item.senderId] ?? { icon: '?' }} className="msg-avatar" />
               )}
               {item.senderId === String(user.id) && <span className="msg-time">{item.time}</span>}
-              {item.type === 'image' ? (
-                <img src={item.content} alt="채팅 사진" className="bubble bubble-image" />
-              ) : (
-                <div className="bubble">{item.content}</div>
-              )}
+              <div className="bubble-col">
+                {item.senderId !== String(user.id) && others.length > 1 && (
+                  <span className="msg-sender">{byId[item.senderId]?.nickname ?? '알 수 없음'}</span>
+                )}
+                {item.type === 'image' ? (
+                  <img src={item.content} alt="채팅 사진" className="bubble bubble-image" />
+                ) : (
+                  <div className="bubble">{item.content}</div>
+                )}
+              </div>
               {item.senderId !== String(user.id) && <span className="msg-time">{item.time}</span>}
             </div>
           ),
@@ -452,16 +458,17 @@ export default function Chat() {
       {inviteOpen && (
         <div className="modal-backdrop" onClick={() => setInviteOpen(false)}>
           <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-title">대리인 초대</h3>
+            <h3 className="modal-title">{mySide === 'seller' ? '판매자 대리인 초대' : '구매자 대리인 초대'}</h3>
             <p className="modal-sub">
-              대리인은 구매자를 대신해 물건을 인수·인계하는 사람이에요. 판매자에게서 물건을
-              받을 때는 인수인증을, 구매자에게 넘길 때는 인계인증을 진행해주세요. 거래가
-              완료되면 자동으로 퇴장합니다.
+              대리인은 나를 대신해 물건을 인수·인계하는 사람이에요. 앞 사람에게서 물건을
+              받을 때는 인수인증을, 다음 사람에게 넘길 때는 인계인증을 진행해주세요. 거래 관련
+              문제가 생겼을 때 다시 확인할 수 있도록, 거래가 완료된 뒤에도 채팅방에 계속
+              남아있어요.
             </p>
             {friends
               .filter((f) => !chain.some((p) => p.id === String(f.id)))
               .map((f) => (
-                <div key={f.id} className="friend-row" onClick={() => inviteBuyerAgent(f)}>
+                <div key={f.id} className="friend-row" onClick={() => inviteAgent(f)}>
                   <Avatar user={f} />
                   <span>{f.nickname}</span>
                 </div>

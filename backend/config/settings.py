@@ -1,13 +1,19 @@
 from pathlib import Path
 import os
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-only-secret-key')
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        'DJANGO_SECRET_KEY가 설정되지 않았어요. backend/.env.example을 참고해 '
+        'backend/.env에 고유한 값을 넣어주세요 (예측 가능한 기본값으로 조용히 기동하지 않도록 의도적으로 막아둠).'
+    )
 DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if host.strip()]
 
@@ -107,6 +113,48 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ],
+    # ScopedRateThrottle은 뷰에 throttle_scope가 지정된 경우에만 동작하므로, 전역
+    # 기본값으로 넣어도 나머지 뷰에는 영향이 없다 (opt-in). 무차별 대입 공격에
+    # 노출되기 쉬운 로그인/회원가입, 돈이 오가는 송금에만 적용한다.
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'auth': '10/min',
+        'transfer': '30/min',
+    },
+    'EXCEPTION_HANDLER': 'marketplace.exceptions.logging_exception_handler',
+}
+
+# 인증 실패/권한 거부 같은 보안 이벤트를 콘솔에라도 남기기 위한 최소 로깅 설정
+# (보안점검.md A09 — 이전엔 LOGGING 설정 자체가 없었음).
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'security': {
+            'format': '[{asctime}] {levelname} {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'security',
+        },
+    },
+    'loggers': {
+        'django.security': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
 }
 
 CORS_ALLOWED_ORIGINS = [

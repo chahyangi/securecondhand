@@ -103,6 +103,9 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatParticipant
         fields = ['id', 'user', 'user_detail', 'role', 'left_at', 'created_at']
+        # role은 클라이언트 입력을 받지 않는다 — ChatRoomViewSet.participants가 초대자의
+        # 역할(판매자/구매자)을 보고 서버에서 직접 정해서 save(role=...)로 넣어준다.
+        read_only_fields = ['role']
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):

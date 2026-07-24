@@ -128,7 +128,8 @@ class ChatParticipant(TimeStampedModel):
     class Role(models.TextChoices):
         BUYER = 'buyer', '구매자'
         SELLER = 'seller', '판매자'
-        AGENT = 'agent', '대리인'
+        SELLER_AGENT = 'seller_agent', '판매자 대리인'
+        BUYER_AGENT = 'buyer_agent', '구매자 대리인'
 
     chatroom = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='participants')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='chat_participations')

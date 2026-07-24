@@ -31,8 +31,14 @@ const MENU = [
 
 export default function Settings() {
   const navigate = useNavigate()
-  const { user, loading, logout } = useAuth()
+  const { user, loading, logout, refreshUser } = useAuth()
   const [view, setView] = useState('main') // main | friends | notifications | account
+
+  // 대면 거래 자동 송금, 상대방의 송금 등 다른 화면/유저의 동작으로 잔액이 바뀌었을 수 있으니
+  // 설정 화면에 들어올 때마다 최신 잔액을 다시 받아온다.
+  useEffect(() => {
+    refreshUser().catch(() => {})
+  }, [refreshUser])
 
   if (loading) {
     return (
