@@ -17,7 +17,7 @@
   "dependencies": {
     "@tosspayments/tosspayments-sdk": "^2.7.1",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
